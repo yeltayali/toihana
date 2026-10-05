@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#064E3B">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Тойхана Management & Event Passport System</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap&subset=cyrillic" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: { em: { DEFAULT: '#064E3B', 700: '#065F46', 600: '#047857', 100: '#D1FAE5', 50: '#ECFDF5' }, gold: { DEFAULT: '#D97706', 100: '#FEF3C7', 50: '#FFFBEB' } },
+        fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'], serif: ['Playfair Display', 'Georgia', 'serif'] }
+      }
+    }
+  }
+</script>
+
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+<style>
+  html, body { background: #F5F5F4; -webkit-tap-highlight-color: transparent; }
+  body { font-family: 'Inter', system-ui, sans-serif; color: #1c1917; }
+  input, select, textarea { font-size: 16px; } /* no iOS zoom */
+  .field { width: 100%; border: 1px solid #d6d3d1; border-radius: 10px; padding: 9px 11px; background: #fff; outline: none; min-height: 42px; }
+  .field:focus { border-color: #047857; box-shadow: 0 0 0 3px rgba(4,120,87,.15); }
+  .field:disabled { background: transparent; border-color: transparent; padding-left: 0; color: inherit; -webkit-text-fill-color: inherit; opacity: 1; appearance: none; }
+  select.field:disabled { background-image: none; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 10px; padding: 10px 14px; font-weight: 600; min-height: 42px; transition: .15s; cursor: pointer; user-select: none; }
+  .btn:active { transform: scale(.97); }
+  .btn-gold { background: #D97706; color: #fff; } .btn-gold:hover { background: #B45309; }
+  .btn-em { background: #064E3B; color: #fff; } .btn-em:hover { background: #065F46; }
+  .btn-ghost { background: #fff; border: 1px solid #d6d3d1; color: #44403c; } .btn-ghost:hover { background: #fafaf9; }
+  .btn-danger { color: #b91c1c; } 
+  .card { background: #fff; border-radius: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); border: 1px solid #e7e5e4; }
+  .pattern { background-image: radial-gradient(rgba(217,119,6,.18) 1px, transparent 1px); background-size: 14px 14px; }
+  .scrollx { overflow-x: auto; scrollbar-width: none; } .scrollx::-webkit-scrollbar { display: none; }
+  .safe-b { padding-bottom: env(safe-area-inset-bottom); }
+  @keyframes pop { from { transform: scale(.96); opacity: 0 } to { transform: scale(1); opacity: 1 } }
+  .pop { animation: pop .18s ease-out; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div id="pdf-host" style="position:absolute;left:-10000px;top:0;"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useRef } = React;
+
+/* ------------------------- Константы ------------------------- */
+const STORAGE_KEY = 'toihana_passport_v1';
+const MENU_CATS = ['Холодные закуски', 'Салаты', 'Первое горячее', 'Второе горячее', 'Напитки / Фрукты', 'Десерты', 'Алкоголь'];
+const GUEST_CATS = ['Құдалар', 'Достар', 'Әріптестер', 'Туыстар', 'Президиум', 'Другое'];
+const CAT_COLORS = { 'Құдалар': '#B45309', 'Достар': '#047857', 'Әріптестер': '#1D4ED8', 'Туыстар': '#7C3AED', 'Президиум': '#BE123C', 'Другое': '#57534E' };
+const PRESETS = [
+  { time: '17:00', event: 'Встреча гостей / Коктейль', responsible: 'Администратор', notes: 'Welcome-зона, лёгкие закуски' },
+  { time: '18:00', event: 'Торжественный вход', responsible: 'Тамада / Ведущий', notes: 'Музыка, выход молодожёнов / виновника' },
+  { time: '18:15', event: 'Бата', responsible: 'Аксакал', notes: 'Открывающая бата' },
+  { time: '19:00', event: 'Вынос Бешбармака', responsible: 'Кухня / Официанты', notes: 'Подача на все столы одновременно' },
+  { time: '20:00', event: 'Шоу-балет', responsible: 'Артисты', notes: 'Проверить свет и звук' },
+  { time: '21:30', event: 'Вынос торта', responsible: 'Кондитер / Заказчик', notes: 'Свет приглушить, фейерверки' },
+  { time: '22:00', event: 'Ақ бата', responsible: 'Аксакал', notes: 'Завершающее благословение' }
+];
+const uid = () => Math.random().toString(36).slice(2, 9);
+const money = n => (Math.round(n) || 0).toLocaleString('ru-RU') + ' ₸';
+const num = v => { const n = parseFloat(v); return isFinite(n) ? n : 0; };
+
+const demoData = () => {
+  const t = [
+    { id: 'tp', name: 'Президиум', shape: 'rect', seats: 10 },
+    { id: 't1', name: 'Стол 1', shape: 'round', seats: 10 },
+    { id: 't2', name: 'Стол 2', shape: 'round', seats: 10 },
+    { id: 't3', name: 'Стол 3', shape: 'rect', seats: 8 },
+    { id: 't4', name: 'Стол 4', shape: 'round', seats: 10 }
+  ];
+  const g = [
+    ['Нурлан ата', 'Президиум', 'tp'], ['Гулжан апа', 'Президиум', 'tp'], ['Берик Сейтқали', 'Құдалар', 't1'], ['Динара Сейтқали', 'Құдалар', 't1'],
+    ['Асхат Омаров', 'Достар', 't2'], ['Ержан Тулеуов', 'Достар', 't2'], ['Мадина Қасым', 'Әріптестер', 't3'], ['Самат Жумабек', 'Әріптестер', null]
+  ].map(([name, category, tableId]) => ({ id: uid(), name, category, tableId }));
+  const m = (cat, name, grams, price, qty, provider = 'restaurant') => ({ id: uid(), cat, name, grams, price, qty, provider });
+  return {
+    venue: 'Тойхана Ақ Отау',
+    event: { title: 'Үйлену тойы — Свадьба', date: '2026-10-24', client: 'Алмас Нурланов', phone: '+7 777 000 00 00', guests: 80 },
+    tables: t, guests: g,
+    menu: [
+      m('Холодные закуски', 'Казы-карта, жая', 60, 1800, 80), m('Холодные закуски', 'Нарезка сыров', 40, 900, 80),
+      m('Салаты', 'Салат «Цезарь»', 80, 700, 80), m('Салаты', 'Салат «Ачичук»', 70, 500, 80),
+      m('Первое горячее', 'Шурпа', 250, 1100, 80), m('Второе горячее', 'Бешбармак', 350, 3200, 80),
+      m('Напитки / Фрукты', 'Фруктовая ваза', 200, 0, 20, 'client'), m('Напитки / Фрукты', 'Соки и морсы', 300, 600, 80),
+      m('Десерты', 'Торт', 150, 0, 80, 'client'), m('Алкоголь', 'Шампанское', 0, 0, 40, 'client')
+    ],
+    timeline: PRESETS.map(p => ({ id: uid(), time: p.time, event: p.event, responsible: p.responsible, contact: '', notes: p.notes }))
+  };
+};
+const emptyData = () => ({
+  venue: 'Тойхана Ақ Отау',
+  event: { title: '', date: '', client: '', phone: '', guests: 50 },
+  tables: [], guests: [], menu: [], timeline: []
+});
+const loadData = () => { try { const r = localStorage.getItem(STORAGE_KEY); if (r) return JSON.parse(r); } catch (e) {} return demoData(); };
+
+/* ------------------------- Мелкие компоненты ------------------------- */
+const I = ({ n, className = '' }) => <i className={`fa-solid fa-${n} ${className}`}></i>;
+const Label = ({ children }) => <div className="text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-1">{children}</div>;
+const Stepper = ({ value, onChange, min = 1, max = 99, disabled }) => (
+  <div className="inline-flex items-center rounded-xl border border-stone-300 bg-white overflow-hidden">
+    {!disabled && <button className="w-11 h-11 text-lg text-em hover:bg-em-50" onClick={() => onChange(Math.max(min, value - 1))}><I n="minus" /></button>}
+    <div className="min-w-[44px] text-center font-semibold px-2">{value}</div>
+    {!disabled && <button className="w-11 h-11 text-lg text-em hover:bg-em-50" onClick={() => onChange(Math.min(max, value + 1))}><I n="plus" /></button>}
+  </div>
+);
+const SectionTitle = ({ icon, title, right }) => (
+  <div className="flex items-center justify-between gap-2 mb-3">
+    <h2 className="font-serif text-xl font-bold text-em flex items-center gap-2"><span className="text-gold"><I n={icon} /></span>{title}</h2>
+    {right}
+  </div>
+);
+
+/* ------------------------- Форма стола (схема) ------------------------- */
+function TableShape({ t, count, selected, onClick }) {
+  const n = t.seats;
+  const full = count >= n, over = count > n;
+  const color = over ? '#B91C1C' : full ? '#047857' : '#D97706';
+  if (t.shape === 'round') {
+    const d = 56 + Math.min(n, 16) * 3.5;
+    const box = d + 44, r = d / 2 + 11, c = box / 2;
+    return (
+      <button onClick={onClick} className={`relative rounded-2xl pop ${selected ? 'ring-4 ring-gold/60 bg-gold-50' : 'hover:bg-stone-50'}`} style={{ width: box, height: box }}>
+        {Array.from({ length: n }).map((_, i) => {
+          const a = (i / n) * 2 * Math.PI - Math.PI / 2;
+          return <span key={i} className="absolute rounded-full border" style={{ width: 14, height: 14, left: c + r * Math.cos(a) - 7, top: c + r * Math.sin(a) - 7, background: i < count ? color : '#fff', borderColor: i < count ? color : '#a8a29e' }} />;
+        })}
+        <div className="absolute rounded-full flex flex-col items-center justify-center text-center leading-tight text-white shadow-inner" style={{ width: d, height: d, left: c - d / 2, top: c - d / 2, background: 'linear-gradient(135deg,#065F46,#064E3B)', border: '3px solid #D97706' }}>
+          <div className="text-[11px] font-semibold px-1 truncate max-w-full">{t.name}</div>
+          <div className="text-sm font-bold" style={{ color: over ? '#FCA5A5' : '#FCD34D' }}>{count}/{n}</div>
+        </div>
+      </button>
+    );
+  }
+  const top = Math.ceil(n / 2), bottom = n - top;
+  const w = Math.max(110, top * 22 + 24), h = 58;
+  const row = (k, y) => Array.from({ length: k }).map((_, i) => ({ x: ((i + 0.5) / k) * w, y }));
+  const dots = [...row(top, -2), ...row(bottom, h + 2)];
+  return (
+    <button onClick={onClick} className={`relative rounded-2xl pop ${selected ? 'ring-4 ring-gold/60 bg-gold-50' : 'hover:bg-stone-50'}`} style={{ width: w + 24, height: h + 44 }}>
+      <div className="absolute" style={{ left: 12, top: 22, width: w, height: h }}>
+        {dots.map((p, i) => <span key={i} className="absolute rounded-full border" style={{ width: 14, height: 14, left: p.x - 7, top: p.y - 7 + (p.y < 0 ? 0 : 0) , background: i < count ? color : '#fff', borderColor: i < count ? color : '#a8a29e' }} />)}
+        <div className="absolute inset-0 rounded-xl flex flex-col items-center justify-center text-white shadow-inner" style={{ background: 'linear-gradient(135deg,#065F46,#064E3B)', border: '3px solid #D97706' }}>
+          <div className="text-[11px] font-semibold px-1 truncate max-w-full">{t.name}</div>
+          <div className="text-sm font-bold" style={{ color: over ? '#FCA5A5' : '#FCD34D' }}>{count}/{n}</div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+/* ------------------------- Модуль 1: Зал ------------------------- */
+function HallModule({ data, set, edit }) {
+  const [sel, setSel] = useState(null);
+  const [gName, setGName] = useState('');
+  const [gCat, setGCat] = useState(GUEST_CATS[0]);
+  const [gTable, setGTable] = useState('');
+  const [filter, setFilter] = useState('all');
+
+  const counts = useMemo(() => {
+    const c = {}; data.guests.forEach(g => { if (g.tableId) c[g.tableId] = (c[g.tableId] || 0) + 1; }); return c;
+  }, [data.guests]);
+  const totalSeats = data.tables.reduce((s, t) => s + t.seats, 0);
+  const seated = data.guests.filter(g => g.tableId).length;
+  const selTable = data.tables.find(t => t.id === sel);
+
+  const updTable = (id, p) => set(d => ({ ...d, tables: d.tables.map(t => t.id === id ? { ...t, ...p } : t) }));
+  const addTable = shape => {
+    const id = uid(); const k = data.tables.length + 1;
+    set(d => ({ ...d, tables: [...d.tables, { id, name: 'Стол ' + k, shape, seats: shape === 'round' ? 10 : 8 }] })); setSel(id);
+  };
+  const delTable = id => {
+    set(d => ({ ...d, tables: d.tables.filter(t => t.id !== id), guests: d.guests.map(g => g.tableId === id ? { ...g, tableId: null } : g) })); setSel(null);
+  };
+  const addGuest = () => {
+    const names = gName.split('\n').map(s => s.trim()).filter(Boolean);
+    if (!names.length) return;
+    set(d => ({ ...d, guests: [...d.guests, ...names.map(name => ({ id: uid(), name, category: gCat, tableId: gTable || null }))] }));
+    setGName('');
+  };
+  const updGuest = (id, p) => set(d => ({ ...d, guests: d.guests.map(g => g.id === id ? { ...g, ...p } : g) }));
+  const delGuest = id => set(d => ({ ...d, guests: d.guests.filter(g => g.id !== id) }));
+  const autoSeat = () => {
+    set(d => {
+      const cnt = {}; d.guests.forEach(g => { if (g.tableId) cnt[g.tableId] = (cnt[g.tableId] || 0) + 1; });
+      const guests = d.guests.map(g => {
+        if (g.tableId) return g;
+        const t = d.tables.find(t => (cnt[t.id] || 0) < t.seats);
+        if (!t) return g; cnt[t.id] = (cnt[t.id] || 0) + 1; return { ...g, tableId: t.id };
+      });
+      return { ...d, guests };
+    });
+  };
+  const tableLabel = id => { const t = data.tables.find(t => t.id === id); return t ? t.name : '—'; };
+  const shownGuests = data.guests.filter(g => filter === 'all' ? true : filter === 'none' ? !g.tableId : g.tableId === filter);
+
+  return (
+    <div className="space-y-4">
+      {/* Схема */}
+      <div className="card p-3 sm:p-4">
+        <SectionTitle icon="chair" title="Схема зала" right={
+          <div className="text-sm text-stone-600 text-right">
+            <b className="text-em">{seated}</b> из {data.event.guests} гостей рассажено<br />
+            <span className={totalSeats < data.event.guests ? 'text-red-700 font-semibold' : ''}>мест: {totalSeats}</span>
+          </div>} />
+        <div className="rounded-2xl border border-stone-200 pattern bg-stone-50 p-3 sm:p-5">
+          <div className="mx-auto max-w-xl rounded-xl text-center py-3 text-white font-serif font-semibold tracking-wider" style={{ background: 'linear-gradient(135deg,#B45309,#D97706)' }}>
+            <I n="star" className="mr-2 text-xs" /> СЦЕНА / ТӨР <I n="star" className="ml-2 text-xs" />
+          </div>
+          <div className="flex flex-wrap justify-center gap-1 sm:gap-3 mt-4 min-h-[120px]">
+            {data.tables.length === 0 && <div className="text-stone-400 text-center py-10 w-full">Столов пока нет. Добавьте первый стол ↓</div>}
+            {data.tables.map(t => <TableShape key={t.id} t={t} count={counts[t.id] || 0} selected={sel === t.id} onClick={() => setSel(sel === t.id ? null : t.id)} />)}
+          </div>
+          <div className="text-center text-[11px] text-stone-400 mt-3">Вход / Вход</div>
+        </div>
+        <div className="flex flex-wrap gap-2 mt-3 text-xs text-stone-600">
+          <span><span className="inline-block w-3 h-3 rounded-full bg-gold align-middle"></span> есть места</span>
+          <span><span className="inline-block w-3 h-3 rounded-full bg-em-600 align-middle"></span> заполнен</span>
+          <span><span className="inline-block w-3 h-3 rounded-full bg-red-700 align-middle"></span> перебор</span>
+          <span><span className="inline-block w-3 h-3 rounded-full border border-stone-400 align-middle"></span> свободно</span>
+        </div>
+
+        {edit && (
+          <div className="flex flex-wrap gap-2 mt-3">
+            <button className="btn btn-em" onClick={() => addTable('round')}><I n="circle-plus" /> Круглый стол</button>
+            <button className="btn btn-em" onClick={() => addTable('rect')}><I n="square-plus" /> Прямоугольный</button>
+          </div>
+        )}
+
+        {selTable && (
+          <div className="mt-3 rounded-xl border border-gold/40 bg-gold-50 p-3 pop">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+              <div><Label>Название стола</Label><input className="field" disabled={!edit} value={selTable.name} onChange={e => updTable(selTable.id, { name: e.target.value })} /></div>
+              <div><Label>Количество мест</Label><Stepper disabled={!edit} value={selTable.seats} min={1} max={30} onChange={v => updTable(selTable.id, { seats: v })} /></div>
+              {edit && <div><Label>Форма</Label>
+                <div className="flex gap-2">
+                  <button className={`btn flex-1 ${selTable.shape === 'round' ? 'btn-em' : 'btn-ghost'}`} onClick={() => updTable(selTable.id, { shape: 'round' })}><I n="circle" /> Круг</button>
+                  <button className={`btn flex-1 ${selTable.shape === 'rect' ? 'btn-em' : 'btn-ghost'}`} onClick={() => updTable(selTable.id, { shape: 'rect' })}><I n="square" /> Прямоуг.</button>
+                </div></div>}
+            </div>
+            <div className="mt-3 text-sm">
+              <b>За столом ({counts[selTable.id] || 0}/{selTable.seats}):</b>{' '}
+              {data.guests.filter(g => g.tableId === selTable.id).map(g => g.name).join(', ') || <span className="text-stone-500">никого</span>}
+            </div>
+            {edit && <button className="btn btn-ghost btn-danger mt-3" onClick={() => { if (confirm('Удалить стол? Гости станут нерассаженными.')) delTable(selTable.id); }}><I n="trash" /> Удалить стол</button>}
+          </div>
+        )}
+      </div>
+
+      {/* Гости */}
+      <div className="card p-3 sm:p-4">
+        <SectionTitle icon="users" title={`Список гостей (${data.guests.length})`} right={edit && <button className="btn btn-ghost !min-h-[36px] !py-1 text-sm" onClick={autoSeat}><I n="wand-magic-sparkles" /> Авто-рассадка</button>} />
+        {edit && (
+          <div className="rounded-xl bg-stone-50 border border-stone-200 p-3 mb-3 space-y-2">
+            <textarea rows={2} className="field" placeholder="Имя гостя (можно несколько — каждый с новой строки)" value={gName} onChange={e => setGName(e.target.value)} />
+            <div className="grid grid-cols-2 gap-2">
+              <select className="field" value={gCat} onChange={e => setGCat(e.target.value)}>{GUEST_CATS.map(c => <option key={c}>{c}</option>)}</select>
+              <select className="field" value={gTable} onChange={e => setGTable(e.target.value)}>
+                <option value="">Без стола</option>
+                {data.tables.map(t => <option key={t.id} value={t.id} disabled={(counts[t.id] || 0) >= t.seats}>{t.name} ({counts[t.id] || 0}/{t.seats})</option>)}
+              </select>
+            </div>
+            <button className="btn btn-gold w-full" onClick={addGuest}><I n="user-plus" /> Добавить гостя</button>
+          </div>
+        )}
+        <div className="scrollx flex gap-2 mb-3 pb-1">
+          {[['all', 'Все'], ['none', 'Без стола'], ...data.tables.map(t => [t.id, t.name])].map(([k, l]) => (
+            <button key={k} onClick={() => setFilter(k)} className={`whitespace-nowrap rounded-full px-3 py-1.5 text-sm border ${filter === k ? 'bg-em text-white border-em' : 'bg-white border-stone-300'}`}>{l}</button>
+          ))}
+        </div>
+        <div className="divide-y divide-stone-100">
+          {shownGuests.length === 0 && <div className="text-stone-400 text-center py-6">Нет гостей</div>}
+          {shownGuests.map(g => (
+            <div key={g.id} className="py-2 flex flex-col sm:flex-row sm:items-center gap-2">
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <span className="w-2.5 h-9 rounded-full shrink-0" style={{ background: CAT_COLORS[g.category] || '#57534E' }}></span>
+                <input className="field !min-h-[38px]" disabled={!edit} value={g.name} onChange={e => updGuest(g.id, { name: e.target.value })} />
+              </div>
+              <div className="flex items-center gap-2">
+                <select className="field !min-h-[38px] sm:w-36" disabled={!edit} value={g.category} onChange={e => updGuest(g.id, { category: e.target.value })}>{GUEST_CATS.map(c => <option key={c}>{c}</option>)}</select>
+                {edit
+                  ? <select className="field !min-h-[38px] sm:w-36" value={g.tableId || ''} onChange={e => updGuest(g.id, { tableId: e.target.value || null })}>
+                      <option value="">Без стола</option>
+                      {data.tables.map(t => <option key={t.id} value={t.id} disabled={t.id !== g.tableId && (counts[t.id] || 0) >= t.seats}>{t.name} ({counts[t.id] || 0}/{t.seats})</option>)}
+                    </select>
+                  : <span className="text-sm font-semibold text-em whitespace-nowrap">{tableLabel(g.tableId)}</span>}
+                {edit && <button className="btn btn-ghost btn-danger !px-3" onClick={() => delGuest(g.id)}><I n="xmark" /></button>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------- Статистика меню ------------------------- */
+function menuStats(data) {
+  const guests = Math.max(1, num(data.event.guests));
+  const rest = data.menu.filter(m => m.provider !== 'client');
+  const client = data.menu.filter(m => m.provider === 'client');
+  const weightPP = rest.reduce((s, m) => s + num(m.grams) * num(m.qty) / guests, 0);
+  const clientWeightPP = client.reduce((s, m) => s + num(m.grams) * num(m.qty) / guests, 0);
+  const total = rest.reduce((s, m) => s + num(m.price) * num(m.qty), 0);
+  return { guests, weightPP, clientWeightPP, total, perGuest: total / guests };
+}
+
+/* ------------------------- Модуль 2: Меню ------------------------- */
+function MenuModule({ data, set, edit }) {
+  const [cat, setCat] = useState(MENU_CATS[0]);
+  const [name, setName] = useState('');
+  const [grams, setGrams] = useState('');
+  const [price, setPrice] = useState('');
+  const [qty, setQty] = useState('');
+  const [provider, setProvider] = useState('restaurant');
+  const st = menuStats(data);
+
+  const add = () => {
+    if (!name.trim()) return;
+    set(d => ({ ...d, menu: [...d.menu, { id: uid(), cat, name: name.trim(), grams: num(grams), price: provider === 'client' ? 0 : num(price), qty: qty === '' ? num(d.event.guests) : num(qty), provider }] }));
+    setName(''); setGrams(''); setPrice(''); setQty('');
+  };
+  const upd = (id, p) => set(d => ({ ...d, menu: d.menu.map(m => m.id === id ? { ...m, ...p } : m) }));
+  const del = id => set(d => ({ ...d, menu: d.menu.filter(m => m.id !== id) }));
+
+  const Item = ({ m }) => (
+    <div className={`rounded-xl border p-2.5 ${m.provider === 'client' ? 'border-gold/50 bg-gold-50' : 'border-stone-200 bg-white'}`}>
+      <div className="flex items-center gap-2">
+        <input className="field !min-h-[38px] font-semibold flex-1" disabled={!edit} value={m.name} onChange={e => upd(m.id, { name: e.target.value })} />
+        {edit && <button className="btn btn-ghost btn-danger !px-3 !min-h-[38px]" onClick={() => del(m.id)}><I n="trash" /></button>}
+      </div>
+      <div className="grid grid-cols-3 gap-2 mt-2">
+        <div><Label>г / чел</Label><input type="number" inputMode="decimal" className="field !min-h-[38px]" disabled={!edit} value={m.grams} onChange={e => upd(m.id, { grams: e.target.value })} /></div>
+        <div><Label>Цена, ₸</Label><input type="number" inputMode="decimal" className="field !min-h-[38px]" disabled={!edit || m.provider === 'client'} value={m.price} onChange={e => upd(m.id, { price: e.target.value })} /></div>
+        <div><Label>Порций</Label><input type="number" inputMode="decimal" className="field !min-h-[38px]" disabled={!edit} value={m.qty} onChange={e => upd(m.id, { qty: e.target.value })} /></div>
+      </div>
+      <div className="flex items-center justify-between mt-2 text-sm">
+        {edit
+          ? <button className={`rounded-full px-3 py-1 text-xs font-semibold border ${m.provider === 'client' ? 'bg-gold text-white border-gold' : 'bg-em-50 text-em border-em-100'}`} onClick={() => upd(m.id, { provider: m.provider === 'client' ? 'restaurant' : 'client' })}>
+              <I n={m.provider === 'client' ? 'gift' : 'utensils'} /> {m.provider === 'client' ? 'Привозит клиент' : 'От ресторана'}
+            </button>
+          : <span className="text-xs font-semibold">{m.provider === 'client' ? '🎁 Привозит клиент' : '🍽 От ресторана'}</span>}
+        <span className="font-bold text-em">{m.provider === 'client' ? '—' : money(num(m.price) * num(m.qty))}</span>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* Калькулятор */}
+      <div className="rounded-2xl p-4 text-white shadow-lg" style={{ background: 'linear-gradient(135deg,#064E3B,#047857)' }}>
+        <div className="flex items-center gap-2 font-serif text-lg font-bold mb-3"><I n="calculator" className="text-amber-300" /> Калькулятор меню</div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-xl bg-white/10 p-3"><div className="text-xs text-emerald-100">Вес еды на 1 человека</div><div className="text-2xl font-bold text-amber-300">{Math.round(st.weightPP)} г</div></div>
+          <div className="rounded-xl bg-white/10 p-3"><div className="text-xs text-emerald-100">Стоимость на 1 гостя</div><div className="text-2xl font-bold text-amber-300">{money(st.perGuest)}</div></div>
+          <div className="rounded-xl bg-white/10 p-3 col-span-2"><div className="text-xs text-emerald-100">Итого меню на {st.guests} гостей (только от ресторана)</div><div className="text-3xl font-bold text-amber-300">{money(st.total)}</div></div>
+        </div>
+        {st.clientWeightPP > 0 && <div className="text-xs text-emerald-100 mt-2">+ от клиента: ≈ {Math.round(st.clientWeightPP)} г на человека (в стоимость не входит)</div>}
+      </div>
+
+      {edit && (
+        <div className="card p-3 sm:p-4">
+          <SectionTitle icon="plus" title="Добавить блюдо" />
+          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+            <div className="col-span-2 sm:col-span-2"><Label>Категория</Label><select className="field" value={cat} onChange={e => setCat(e.target.value)}>{MENU_CATS.map(c => <option key={c}>{c}</option>)}</select></div>
+            <div className="col-span-2 sm:col-span-4"><Label>Блюдо</Label><input className="field" placeholder="Например: Бешбармак" value={name} onChange={e => setName(e.target.value)} /></div>
+            <div><Label>г / чел</Label><input type="number" inputMode="decimal" className="field" value={grams} onChange={e => setGrams(e.target.value)} /></div>
+            <div><Label>Цена, ₸</Label><input type="number" inputMode="decimal" className="field" disabled={provider === 'client'} value={provider === 'client' ? '' : price} onChange={e => setPrice(e.target.value)} /></div>
+            <div><Label>Порций</Label><input type="number" inputMode="decimal" className="field" placeholder={String(data.event.guests)} value={qty} onChange={e => setQty(e.target.value)} /></div>
+            <div className="col-span-1 sm:col-span-3">
+              <Label>Кто предоставляет</Label>
+              <div className="flex gap-2">
+                <button className={`btn flex-1 !px-2 text-sm ${provider === 'restaurant' ? 'btn-em' : 'btn-ghost'}`} onClick={() => setProvider('restaurant')}>Ресторан</button>
+                <button className={`btn flex-1 !px-2 text-sm ${provider === 'client' ? 'btn-gold' : 'btn-ghost'}`} onClick={() => setProvider('client')}>Клиент</button>
+              </div>
+            </div>
+          </div>
+          <button className="btn btn-gold w-full mt-3" onClick={add}><I n="plus" /> Добавить в меню</button>
+        </div>
+      )}
+
+      {MENU_CATS.map(c => {
+        const items = data.menu.filter(m => m.cat === c);
+        if (!items.length) return null;
+        return (
+          <div key={c} className="card p-3 sm:p-4">
+            <div className="font-serif font-bold text-em text-lg mb-2 border-b-2 border-gold/60 pb-1">{c}</div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">{items.map(m => <Item key={m.id} m={m} />)}</div>
+          </div>
+        );
+      })}
+
+      {/* Разделение */}
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="card p-3 sm:p-4">
+          <div className="font-bold text-em mb-2"><I n="utensils" className="text-gold mr-1" /> Предоставляется рестораном</div>
+          <ul className="text-sm space-y-1">{data.menu.filter(m => m.provider !== 'client').map(m => <li key={m.id} className="flex justify-between gap-2"><span>{m.name}</span><span className="text-stone-500 whitespace-nowrap">{m.qty} × {money(m.price)}</span></li>)}
+            {!data.menu.some(m => m.provider !== 'client') && <li className="text-stone-400">—</li>}</ul>
+        </div>
+        <div className="card p-3 sm:p-4 border-gold/50">
+          <div className="font-bold text-gold mb-2"><I n="gift" className="mr-1" /> Привозится клиентом</div>
+          <ul className="text-sm space-y-1">{data.menu.filter(m => m.provider === 'client').map(m => <li key={m.id} className="flex justify-between gap-2"><span>{m.name}</span><span className="text-stone-500 whitespace-nowrap">{m.qty} порц.</span></li>)}
+            {!data.menu.some(m => m.provider === 'client') && <li className="text-stone-400">—</li>}</ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------- Модуль 3: Таймлайн ------------------------- */
+function TimelineModule({ data, set, edit }) {
+  const add = p => set(d => ({ ...d, timeline: [...d.timeline, { id: uid(), time: p?.time || '', event: p?.event || '', responsible: p?.responsible || '', contact: '', notes: p?.notes || '' }] }));
+  const upd = (id, p) => set(d => ({ ...d, timeline: d.timeline.map(t => t.id === id ? { ...t, ...p } : t) }));
+  const del = id => set(d => ({ ...d, timeline: d.timeline.filter(t => t.id !== id) }));
+  const move = (i, dir) => set(d => {
+    const a = [...d.timeline]; const j = i + dir; if (j < 0 || j >= a.length) return d;
+    [a[i], a[j]] = [a[j], a[i]]; return { ...d, timeline: a };
+  });
+  const sortByTime = () => set(d => ({ ...d, timeline: [...d.timeline].sort((a, b) => (a.time || '99:99').localeCompare(b.time || '99:99')) }));
+
+  return (
+    <div className="space-y-4">
+      {edit && (
+        <div className="card p-3 sm:p-4">
+          <SectionTitle icon="bolt" title="Готовые пресеты" />
+          <div className="flex flex-wrap gap-2">
+            {PRESETS.map(p => <button key={p.event} className="rounded-full border border-em-100 bg-em-50 text-em px-3 py-2 text-sm font-medium hover:bg-em-100" onClick={() => add(p)}><I n="plus" className="text-xs mr-1" />{p.event}</button>)}
+          </div>
+          <div className="flex gap-2 mt-3">
+            <button className="btn btn-gold" onClick={() => add()}><I n="plus" /> Свой этап</button>
+            <button className="btn btn-ghost" onClick={sortByTime}><I n="arrow-down-1-9" /> По времени</button>
+          </div>
+        </div>
+      )}
+      <div className="relative pl-5 sm:pl-7">
+        <div className="absolute left-2 sm:left-3 top-2 bottom-2 w-0.5 bg-gold/50"></div>
+        {data.timeline.length === 0 && <div className="card p-8 text-center text-stone-400">Программа пока пуста</div>}
+        {data.timeline.map((t, i) => (
+          <div key={t.id} className="relative mb-3 pop">
+            <span className="absolute -left-[18px] sm:-left-[22px] top-4 w-4 h-4 rounded-full bg-gold border-4 border-white shadow"></span>
+            <div className="card p-3">
+              <div className="flex items-center gap-2">
+                <input type="time" className="field !w-[120px] font-bold text-em" disabled={!edit} value={t.time} onChange={e => upd(t.id, { time: e.target.value })} />
+                <input className="field font-semibold flex-1" placeholder="Событие" disabled={!edit} value={t.event} onChange={e => upd(t.id, { event: e.target.value })} />
+              </div>
+              <div className="grid sm:grid-cols-2 gap-2 mt-2">
+                <div><Label>Ответственные / Артисты</Label><input className="field" disabled={!edit} value={t.responsible} onChange={e => upd(t.id, { responsible: e.target.value })} /></div>
+                <div><Label>Контакты</Label><input className="field" inputMode="tel" disabled={!edit} value={t.contact} onChange={e => upd(t.id, { contact: e.target.value })} /></div>
+              </div>
+              <div className="mt-2"><Label>Заметки</Label><textarea rows={edit ? 2 : 1} className="field" disabled={!edit} value={t.notes} onChange={e => upd(t.id, { notes: e.target.value })} /></div>
+              {edit && (
+                <div className="flex gap-2 mt-2 justify-end">
+                  <button className="btn btn-ghost !px-3" disabled={i === 0} onClick={() => move(i, -1)}><I n="arrow-up" /></button>
+                  <button className="btn btn-ghost !px-3" disabled={i === data.timeline.length - 1} onClick={() => move(i, 1)}><I n="arrow-down" /></button>
+                  <button className="btn btn-ghost btn-danger !px-3" onClick={() => del(t.id)}><I n="trash" /></button>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------- Модуль 4: PDF-паспорт ------------------------- */
+function Passport({ data }) {
+  const st = menuStats(data);
+  const counts = {}; data.guests.forEach(g => { if (g.tableId) counts[g.tableId] = (counts[g.tableId] || 0) + 1; });
+  const unseated = data.guests.filter(g => !g.tableId);
+  const th = { background: '#064E3B', color: '#fff', padding: '6px 8px', textAlign: 'left', fontSize: 11 };
+  const td = { padding: '5px 8px', borderBottom: '1px solid #e7e5e4', fontSize: 11, verticalAlign: 'top' };
+  const h2 = { fontFamily: "'Playfair Display', serif", color: '#064E3B', fontSize: 16, fontWeight: 700, borderBottom: '2px solid #D97706', paddingBottom: 4, margin: '18px 0 8px' };
+  const dateStr = data.event.date ? new Date(data.event.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : '—';
+  return (
+    <div style={{ width: 794, background: '#fff', color: '#1c1917', fontFamily: "'Inter', sans-serif", padding: 0 }}>
+      <div style={{ background: 'linear-gradient(135deg,#064E3B,#047857)', color: '#fff', padding: '26px 34px', borderBottom: '5px solid #D97706' }}>
+        <div style={{ fontSize: 11, letterSpacing: 4, color: '#FCD34D' }}>ПАСПОРТ МЕРОПРИЯТИЯ</div>
+        <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 30, fontWeight: 700, marginTop: 4 }}>{data.venue}</div>
+        <div style={{ fontSize: 15, marginTop: 4, color: '#D1FAE5' }}>{data.event.title || 'Мероприятие'}</div>
+      </div>
+      <div style={{ padding: '0 34px 26px' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 14 }}>
+          <tbody><tr>
+            {[['Дата', dateStr], ['Заказчик', data.event.client || '—'], ['Телефон', data.event.phone || '—'], ['Гостей', String(data.event.guests)]].map(([k, v]) => (
+              <td key={k} style={{ background: '#FFFBEB', border: '1px solid #FDE68A', padding: '8px 10px', width: '25%' }}>
+                <div style={{ fontSize: 9, color: '#92400E', textTransform: 'uppercase', letterSpacing: 1 }}>{k}</div>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{v}</div>
+              </td>))}
+          </tr></tbody>
+        </table>
+
+        <div style={h2}>1. Рассадка гостей</div>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr><th style={th}>Стол</th><th style={th}>Форма</th><th style={th}>Места</th><th style={th}>Гости</th></tr></thead>
+          <tbody>
+            {data.tables.map(t => (
+              <tr key={t.id} style={{ pageBreakInside: 'avoid' }}>
+                <td style={{ ...td, fontWeight: 700 }}>{t.name}</td>
+                <td style={td}>{t.shape === 'round' ? 'круглый' : 'прямоуг.'}</td>
+                <td style={td}>{counts[t.id] || 0}/{t.seats}</td>
+                <td style={td}>{data.guests.filter(g => g.tableId === t.id).map(g => `${g.name} (${g.category})`).join(', ') || '—'}</td>
+              </tr>))}
+            {data.tables.length === 0 && <tr><td style={td} colSpan={4}>—</td></tr>}
+          </tbody>
+        </table>
+        {unseated.length > 0 && <div style={{ fontSize: 11, marginTop: 6, color: '#B91C1C' }}>Не рассажены: {unseated.map(g => g.name).join(', ')}</div>}
+
+        <div style={h2}>2. Меню</div>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr><th style={th}>Блюдо</th><th style={th}>г/чел</th><th style={th}>Порций</th><th style={th}>Цена</th><th style={{ ...th, textAlign: 'right' }}>Сумма</th></tr></thead>
+          <tbody>
+            {MENU_CATS.map(c => {
+              const items = data.menu.filter(m => m.cat === c && m.provider !== 'client');
+              if (!items.length) return null;
+              return (<React.Fragment key={c}>
+                <tr><td colSpan={5} style={{ ...td, background: '#ECFDF5', fontWeight: 700, color: '#064E3B' }}>{c}</td></tr>
+                {items.map(m => <tr key={m.id} style={{ pageBreakInside: 'avoid' }}><td style={td}>{m.name}</td><td style={td}>{m.grams}</td><td style={td}>{m.qty}</td><td style={td}>{money(m.price)}</td><td style={{ ...td, textAlign: 'right' }}>{money(num(m.price) * num(m.qty))}</td></tr>)}
+              </React.Fragment>);
+            })}
+          </tbody>
+        </table>
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8 }}>
+          <tbody><tr>
+            <td style={{ background: '#064E3B', color: '#fff', padding: 8, fontSize: 11 }}>Вес на 1 чел.<br /><b style={{ color: '#FCD34D', fontSize: 15 }}>{Math.round(st.weightPP)} г</b></td>
+            <td style={{ background: '#064E3B', color: '#fff', padding: 8, fontSize: 11 }}>На 1 гостя<br /><b style={{ color: '#FCD34D', fontSize: 15 }}>{money(st.perGuest)}</b></td>
+            <td style={{ background: '#D97706', color: '#fff', padding: 8, fontSize: 11 }}>Итого на {st.guests} гостей<br /><b style={{ fontSize: 17 }}>{money(st.total)}</b></td>
+          </tr></tbody>
+        </table>
+        {data.menu.some(m => m.provider === 'client') && (
+          <div style={{ marginTop: 10, border: '1px dashed #D97706', background: '#FFFBEB', padding: '8px 10px', fontSize: 11 }}>
+            <b style={{ color: '#92400E' }}>Привозится клиентом:</b> {data.menu.filter(m => m.provider === 'client').map(m => `${m.name} (${m.qty})`).join(', ')}
+          </div>)}
+
+        <div style={h2}>3. Шоу-программа и хронометраж</div>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr><th style={th}>Время</th><th style={th}>Событие</th><th style={th}>Ответственные</th><th style={th}>Контакты</th><th style={th}>Заметки</th></tr></thead>
+          <tbody>
+            {data.timeline.map(t => <tr key={t.id} style={{ pageBreakInside: 'avoid' }}><td style={{ ...td, fontWeight: 700, color: '#B45309', whiteSpace: 'nowrap' }}>{t.time || '—'}</td><td style={{ ...td, fontWeight: 600 }}>{t.event}</td><td style={td}>{t.responsible}</td><td style={td}>{t.contact}</td><td style={td}>{t.notes}</td></tr>)}
+            {data.timeline.length === 0 && <tr><td style={td} colSpan={5}>—</td></tr>}
+          </tbody>
+        </table>
+        <div style={{ marginTop: 24, display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#78716C', borderTop: '1px solid #e7e5e4', paddingTop: 8 }}>
+          <span>{data.venue} · Toihana Event Passport</span><span>Сформировано: {new Date().toLocaleDateString('ru-RU')}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 28, fontSize: 11 }}>
+          <span>Заказчик: ____________________</span><span>Администратор: ____________________</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------- Приложение ------------------------- */
+function App() {
+  const [data, setData] = useState(loadData);
+  const [tab, setTab] = useState('hall');
+  const [edit, setEdit] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) {} }, [data]);
+  const setEv = p => setData(d => ({ ...d, event: { ...d.event, ...p } }));
+  const st = menuStats(data);
+
+  const makePdf = async () => {
+    if (!window.html2pdf) { alert('Библиотека PDF не загружена. Проверьте интернет-соединение.'); return; }
+    setBusy(true);
+    const host = document.getElementById('pdf-host');
+    const mount = document.createElement('div');
+    host.appendChild(mount);
+    const root = ReactDOM.createRoot(mount);
+    root.render(<Passport data={data} />);
+    try {
+      await new Promise(r => setTimeout(r, 400));
+      if (document.fonts && document.fonts.ready) await document.fonts.ready;
+      const name = ('Паспорт_' + (data.event.title || 'мероприятия')).replace(/[^\wА-Яа-яЁёӘәҒғҚқҢңӨөҰұҮүҺһІі-]+/g, '_') + '.pdf';
+      await html2pdf().set({
+        margin: [6, 0, 8, 0], filename: name, image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['css', 'legacy'], avoid: ['tr'] }
+      }).from(mount.firstChild).save();
+    } catch (e) { console.error(e); alert('Не удалось создать PDF: ' + e.message); }
+    root.unmount(); host.removeChild(mount); setBusy(false);
+  };
+
+  const tabs = [['hall', 'chair', 'Зал'], ['menu', 'utensils', 'Меню'], ['show', 'masks-theater', 'Программа']];
+
+  return (
+    <div className="min-h-screen pb-24 md:pb-8">
+      {/* Header */}
+      <header className="sticky top-0 z-30 text-white shadow-lg" style={{ background: 'linear-gradient(135deg,#064E3B,#065F46)', borderBottom: '3px solid #D97706' }}>
+        <div className="max-w-5xl mx-auto px-3 py-2.5">
+          <div className="flex items-center gap-2">
+            <div className="w-10 h-10 rounded-full bg-gold flex items-center justify-center text-lg shrink-0"><I n="mosque" /></div>
+            <input disabled={!edit} value={data.venue} onChange={e => setData(d => ({ ...d, venue: e.target.value }))}
+              className="flex-1 min-w-0 bg-transparent font-serif text-lg sm:text-2xl font-bold outline-none border-b border-dashed border-white/30 focus:border-amber-300 disabled:border-transparent" />
+            <button className="btn !px-3 bg-white/10 hover:bg-white/20 text-white" onClick={() => setMenuOpen(o => !o)} title="Детали"><I n={menuOpen ? 'chevron-up' : 'sliders'} /></button>
+          </div>
+          {menuOpen && (
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mt-3 pop text-stone-900">
+              <div className="col-span-2"><Label><span className="text-emerald-100">Мероприятие</span></Label><input className="field" disabled={!edit} placeholder="Свадьба, юбилей, тусау…" value={data.event.title} onChange={e => setEv({ title: e.target.value })} /></div>
+              <div><Label><span className="text-emerald-100">Дата</span></Label><input type="date" className="field" disabled={!edit} value={data.event.date} onChange={e => setEv({ date: e.target.value })} /></div>
+              <div><Label><span className="text-emerald-100">Заказчик</span></Label><input className="field" disabled={!edit} value={data.event.client} onChange={e => setEv({ client: e.target.value })} /></div>
+              <div><Label><span className="text-emerald-100">Гостей</span></Label><input type="number" inputMode="numeric" className="field" disabled={!edit} value={data.event.guests} onChange={e => setEv({ guests: e.target.value === '' ? '' : Math.max(0, parseInt(e.target.value) || 0) })} /></div>
+              <div className="col-span-2"><Label><span className="text-emerald-100">Телефон заказчика</span></Label><input className="field" inputMode="tel" disabled={!edit} value={data.event.phone || ''} onChange={e => setEv({ phone: e.target.value })} /></div>
+              {edit && <div className="col-span-2 md:col-span-3 flex gap-2 items-end">
+                <button className="btn btn-ghost !min-h-[42px] text-sm flex-1" onClick={() => { if (confirm('Начать новое мероприятие? Все данные будут очищены.')) setData(emptyData()); }}><I n="file" /> Новое</button>
+                <button className="btn btn-ghost !min-h-[42px] text-sm flex-1" onClick={() => { if (confirm('Загрузить демо-данные? Текущие данные будут заменены.')) setData(demoData()); }}><I n="flask" /> Демо</button>
+              </div>}
+            </div>
+          )}
+          {!menuOpen && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 mt-1.5 text-sm text-emerald-100">
+              <span><I n="champagne-glasses" className="text-amber-300 mr-1" />{data.event.title || 'Без названия'}</span>
+              <span><I n="calendar" className="text-amber-300 mr-1" />{data.event.date ? new Date(data.event.date).toLocaleDateString('ru-RU') : 'дата?'}</span>
+              <span><I n="user" className="text-amber-300 mr-1" />{data.event.client || 'заказчик?'}</span>
+              <span><I n="users" className="text-amber-300 mr-1" />{data.event.guests} гостей</span>
+            </div>
+          )}
+          <div className="flex gap-2 mt-2.5">
+            <button className="btn btn-gold flex-1 text-sm sm:text-base" disabled={busy} onClick={makePdf}>
+              {busy ? <><I n="spinner" className="fa-spin" /> Создаём…</> : <><I n="file-pdf" /> <span className="hidden sm:inline">Сформировать и скачать</span> PDF-Паспорт</>}
+            </button>
+            <button className={`btn text-sm ${edit ? 'bg-white text-em' : 'bg-amber-300 text-em'}`} onClick={() => setEdit(e => !e)}>
+              <I n={edit ? 'pen-to-square' : 'eye'} /> <span className="hidden sm:inline">{edit ? 'Редактирование' : 'Предпросмотр'}</span><span className="sm:hidden">{edit ? 'Админ' : 'Просмотр'}</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Tabs */}
+      <nav className="fixed bottom-0 inset-x-0 z-30 bg-white border-t border-stone-200 md:static md:border-0 md:bg-transparent md:max-w-5xl md:mx-auto md:px-3 md:pt-4 safe-b">
+        <div className="flex md:gap-2 md:bg-white md:rounded-2xl md:p-1.5 md:shadow-sm md:border md:border-stone-200">
+          {tabs.map(([k, ic, l]) => (
+            <button key={k} onClick={() => { setTab(k); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+              className={`flex-1 py-2.5 md:py-2.5 flex md:flex-row flex-col items-center justify-center gap-0.5 md:gap-2 text-xs md:text-base font-semibold md:rounded-xl transition ${tab === k ? 'text-em md:bg-em md:text-white' : 'text-stone-500'}`}>
+              <span className={`text-lg md:text-base ${tab === k ? 'text-gold md:text-amber-300' : ''}`}><I n={ic} /></span>{l}
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      <main className="max-w-5xl mx-auto px-3 pt-4">
+        {!edit && <div className="mb-3 rounded-xl bg-amber-100 text-amber-900 text-sm px-3 py-2 flex items-center gap-2"><I n="eye" /> Режим предпросмотра: данные только для чтения</div>}
+        {tab === 'hall' && <HallModule data={data} set={setData} edit={edit} />}
+        {tab === 'menu' && <MenuModule data={data} set={setData} edit={edit} />}
+        {tab === 'show' && <TimelineModule data={data} set={setData} edit={edit} />}
+        <div className="text-center text-xs text-stone-400 mt-8">Тойхана Management & Event Passport System · данные сохраняются на этом устройстве</div>
+      </main>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
